@@ -1,0 +1,2006 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinFamily - Controlo Financeiro Familiar & Escâner de Recibos IA</title>
+    <!-- Tailwind CSS para Estilização Moderna -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter para ótima legibilidade -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome para Ícones Incríveis -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Barra de rolagem personalizada para uma experiência premium */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateX(100%); }
+            to { transform: translateX(0); }
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes scanLine {
+            0% { top: 0%; }
+            50% { top: 100%; }
+            100% { top: 0%; }
+        }
+        .animate-slideIn {
+            animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .animate-fadeIn {
+            animation: fadeIn 0.2s ease-out forwards;
+        }
+        .scanner-line {
+            animation: scanLine 2s linear infinite;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+    <div id="root"></div>
+
+    <!-- Scripts do React e Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- CARREGAMENTO COMPATÍVEL COM DUPLO CLIQUE (Sem type="module" CORS blocks) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // Configurações do Firebase providas pelo utilizador
+        const DEFAULT_FIREBASE_CONFIG = {
+            apiKey: "AIzaSyAvUrE_BEc03Exv5-ae5SU45nHqYg2L1Pg",
+            authDomain: "finance-duck-943d3.firebaseapp.com",
+            projectId: "finance-duck-943d3",
+            storageBucket: "finance-duck-943d3.firebasestorage.app",
+            messagingSenderId: "778748343540",
+            appId: "1:778748343540:web:d6dc19d896230bc9dd9aa1",
+            measurementId: "G-3HG4H3RQ04"
+        };
+
+        const CATEGORIES = [
+            { id: 'Moradia', label: 'Moradia (Luz, Água, Renda)', icon: 'fa-house', color: '#3b82f6' },
+            { id: 'Alimentação', label: 'Alimentação', icon: 'fa-utensils', color: '#10b981' },
+            { id: 'Transporte', label: 'Transporte', icon: 'fa-car', color: '#f59e0b' },
+            { id: 'Lazer', label: 'Lazer e Viagens', icon: 'fa-gamepad', color: '#ec4899' },
+            { id: 'Saúde', label: 'Saúde e Bem-estar', icon: 'fa-heart-pulse', color: '#ef4444' },
+            { id: 'Educação', label: 'Educação', icon: 'fa-graduation-cap', color: '#8b5cf6' },
+            { id: 'Vestuário', label: 'Vestuário', icon: 'fa-shirt', color: '#06b6d4' },
+            { id: 'Outros', label: 'Outros Gastos', icon: 'fa-ellipsis', color: '#64748b' }
+        ];
+
+        const FAMILY_MEMBERS_DEFAULT = ['Todos', 'Pai', 'Mãe', 'Filho(a)', 'Geral'];
+
+        const INITIAL_BUDGETS = {
+            'Moradia': 3000,
+            'Alimentação': 1500,
+            'Transporte': 600,
+            'Lazer': 800,
+            'Saúde': 500,
+            'Educação': 1000,
+            'Vestuário': 400,
+            'Outros': 500
+        };
+
+        const INITIAL_GOALS = [
+            { id: 'g1', name: 'Fundo de Emergência', target: 15000, current: 8500, deadline: '2026-12' },
+            { id: 'g2', name: 'Viagem de Férias', target: 8000, current: 3200, deadline: '2026-08' }
+        ];
+
+        const INITIAL_TRANSACTIONS = [
+            { id: 't1', date: '2026-05-01', description: 'Ordenado Principal', category: 'Receita', amount: 8500, type: 'income', member: 'Pai', status: 'pago', image: '' },
+            { id: 't2', date: '2026-05-02', description: 'Rendimento Extra', category: 'Receita', amount: 1200, type: 'income', member: 'Mãe', status: 'pago', image: '' },
+            { id: 't3', date: '2026-05-05', description: 'Renda de Casa', category: 'Moradia', amount: 2450, type: 'expense', member: 'Geral', status: 'pago', image: '' },
+            { id: 't4', date: '2026-05-08', description: 'Fatura de Eletricidade', category: 'Moradia', amount: 154.30, type: 'expense', member: 'Pai', status: 'pendente', image: '' },
+            { id: 't5', date: '2026-05-12', description: 'Combustível Automóvel', category: 'Transporte', amount: 320, type: 'expense', member: 'Pai', status: 'pago', image: '' },
+            { id: 't6', date: '2026-05-14', description: 'Serviço de Internet', category: 'Moradia', amount: 120.00, type: 'expense', member: 'Geral', status: 'pendente', image: '' }
+        ];
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'finfamily-app-prod';
+
+        // Algoritmo robusto de Exponential Backoff para chamadas estáveis à API do Gemini (MANDATÓRIO)
+        const fetchWithRetry = async (url, options, maxRetries = 5) => {
+            let delay = 1000;
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.ok) {
+                        return response;
+                    }
+                    if (response.status === 429 || response.status >= 500) {
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        delay *= 2;
+                        continue;
+                    }
+                    return response;
+                } catch (error) {
+                    if (i === maxRetries - 1) throw error;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    delay *= 2;
+                }
+            }
+            throw new Error("Falha após várias tentativas de ligação à API do Gemini.");
+        };
+
+        const compressImageFile = (file, maxWidth = 450, maxHeight = 450, quality = 0.6) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        let width = img.width;
+                        let height = img.height;
+
+                        if (width > height) {
+                            if (width > maxWidth) {
+                                height = Math.round((height * maxWidth) / width);
+                                width = maxWidth;
+                            }
+                        } else {
+                            if (height > maxHeight) {
+                                width = Math.round((width * maxHeight) / height);
+                                height = maxHeight;
+                            }
+                        }
+
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL('image/jpeg', quality));
+                    };
+                    img.onerror = (err) => reject(err);
+                };
+                reader.onerror = (err) => reject(err);
+            });
+        };
+
+        function App() {
+            const [firebaseConfig, setFirebaseConfig] = useState(() => {
+                const saved = localStorage.getItem('finfamily_firebase_config');
+                return saved ? JSON.parse(saved) : DEFAULT_FIREBASE_CONFIG;
+            });
+
+            const [isOfflineMode, setIsOfflineMode] = useState(() => {
+                return localStorage.getItem('finfamily_offline_mode') === 'true';
+            });
+
+            const [firebaseError, setFirebaseError] = useState(null);
+            const [user, setUser] = useState(null);
+            const [authLoading, setAuthLoading] = useState(true);
+            const [databaseMissingError, setDatabaseMissingError] = useState(false); 
+
+            // Serviços do Firebase Compat
+            const [fbServices, setFbServices] = useState({ auth: null, db: null });
+
+            const [transactions, setTransactions] = useState([]);
+            const [budgets, setBudgets] = useState(INITIAL_BUDGETS);
+            const [goals, setGoals] = useState(INITIAL_GOALS);
+            const [familyMembers, setFamilyMembers] = useState(FAMILY_MEMBERS_DEFAULT);
+
+            const [selectedMonth, setSelectedMonth] = useState('2026-05');
+            const [selectedMember, setSelectedMember] = useState('Todos');
+            const [activeTab, setActiveTab] = useState('dashboard');
+
+            const [authTab, setAuthTab] = useState('login');
+            const [emailInput, setEmailInput] = useState('');
+            const [passwordInput, setPasswordInput] = useState('');
+            const [authErrorMsg, setAuthErrorMsg] = useState(null);
+
+            const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
+            const [editingTransaction, setEditingTransaction] = useState(null);
+            const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
+            const [editingGoal, setEditingGoal] = useState(null);
+            const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+            const [viewingImage, setViewingImage] = useState(null); 
+            
+            const [txForm, setTxForm] = useState({
+                date: '2026-05-30',
+                member: 'Geral',
+                description: '',
+                category: 'Alimentação',
+                amount: '',
+                type: 'expense',
+                status: 'pago',
+                image: ''
+            });
+
+            const [goalForm, setGoalForm] = useState({
+                name: '',
+                target: '',
+                deadline: '2026-12'
+            });
+
+            const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
+            const [promptModal, setPromptModal] = useState({ isOpen: false, title: '', placeholder: '', defaultValue: '', onSubmit: null });
+
+            const [isScanningImage, setIsScanningImage] = useState(false);
+            const [scanPurpose, setScanPurpose] = useState('boleto'); 
+            const [scannedPreview, setScannedPreview] = useState(null);
+            const [matchedTransactionId, setMatchedTransactionId] = useState('');
+            const fileInputRef = useRef(null);
+
+            const [toast, setToast] = useState(null);
+
+            const [aiAdvice, setAiAdvice] = useState(null);
+            const [isAiLoading, setIsAiLoading] = useState(false);
+            const [aiError, setAiError] = useState(null);
+
+            const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+            const [assistantMessages, setAssistantMessages] = useState([]);
+            const [assistantInput, setAssistantInput] = useState('');
+            const [isAssistantLoading, setIsAssistantLoading] = useState(false);
+            const [assistantError, setAssistantError] = useState(null);
+
+            const showToast = (message, type = 'success') => {
+                setToast({ message, type });
+                setTimeout(() => setToast(null), 4000);
+            };
+
+            const handleFirestoreError = (error) => {
+                console.error("Firestore Error Detected:", error);
+                if (error.code === 'not-found' || error.message.includes('database') || error.message.includes('does not exist') || error.message.includes('Datastore')) {
+                    setDatabaseMissingError(true);
+                    setIsOfflineMode(true);
+                    localStorage.setItem('finfamily_offline_mode', 'true');
+                }
+            };
+
+            // Inicialização do Firebase Compat
+            useEffect(() => {
+                if (!firebaseConfig) {
+                    setAuthLoading(false);
+                    return;
+                }
+
+                try {
+                    if (!firebase.apps.length) {
+                        firebase.initializeApp(firebaseConfig);
+                    }
+                    const auth = firebase.auth();
+                    const db = firebase.firestore();
+
+                    setFbServices({ auth, db });
+                    setFirebaseError(null);
+
+                    const initAuth = async () => {
+                        try {
+                            if (!auth.currentUser && !isOfflineMode) {
+                                await auth.signInAnonymously();
+                            }
+                        } catch (err) {
+                            console.warn("Autenticação anónima indisponível no browser local.");
+                        }
+                    };
+                    initAuth();
+
+                    const unsubscribe = auth.onAuthStateChanged((currentUser) => {
+                        setUser(currentUser);
+                        setAuthLoading(false);
+                    });
+
+                    return () => unsubscribe();
+                } catch (error) {
+                    console.error("Firebase startup error:", error);
+                    setFirebaseError("Falha ao inicializar o banco Firebase. A utilizar em modo Offline.");
+                    setAuthLoading(false);
+                    setIsOfflineMode(true);
+                }
+            }, [firebaseConfig, isOfflineMode]);
+
+            // Backup e modo offline
+            useEffect(() => {
+                if (isOfflineMode || firebaseError) {
+                    const localTx = localStorage.getItem('finfamily_transactions');
+                    const localBudgets = localStorage.getItem('finfamily_budgets');
+                    const localGoals = localStorage.getItem('finfamily_goals');
+                    const localMembers = localStorage.getItem('finfamily_members');
+
+                    setTransactions(localTx ? JSON.parse(localTx) : INITIAL_TRANSACTIONS);
+                    setBudgets(localBudgets ? JSON.parse(localBudgets) : INITIAL_BUDGETS);
+                    setGoals(localGoals ? JSON.parse(localGoals) : INITIAL_GOALS);
+                    setFamilyMembers(localMembers ? JSON.parse(localMembers) : FAMILY_MEMBERS_DEFAULT);
+                    setAuthLoading(false);
+                }
+            }, [isOfflineMode, firebaseError]);
+
+            // Escuta ativa do Firestore em tempo real
+            useEffect(() => {
+                const { db } = fbServices;
+                if (!db || !user || isOfflineMode) return;
+
+                const txCollectionRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('transactions');
+                const unsubscribeTx = txCollectionRef.onSnapshot((snapshot) => {
+                    const txList = [];
+                    snapshot.forEach(doc => {
+                        txList.push({ id: doc.id, ...doc.data() });
+                    });
+                    setTransactions(txList);
+                }, (error) => handleFirestoreError(error));
+
+                const goalsCollectionRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('goals');
+                const unsubscribeGoals = goalsCollectionRef.onSnapshot((snapshot) => {
+                    const goalList = [];
+                    snapshot.forEach(doc => {
+                        goalList.push({ id: doc.id, ...doc.data() });
+                    });
+                    setGoals(goalList);
+                }, (error) => handleFirestoreError(error));
+
+                const budgetsDocRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('settings').doc('budgets');
+                const unsubscribeBudgets = budgetsDocRef.onSnapshot((docSnap) => {
+                    if (docSnap.exists) {
+                        setBudgets(docSnap.data());
+                    } else {
+                        budgetsDocRef.set(INITIAL_BUDGETS).catch(err => handleFirestoreError(err));
+                        setBudgets(INITIAL_BUDGETS);
+                    }
+                }, (error) => handleFirestoreError(error));
+
+                const membersDocRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('settings').doc('members');
+                const unsubscribeMembers = membersDocRef.onSnapshot((docSnap) => {
+                    if (docSnap.exists) {
+                        setFamilyMembers(docSnap.data().list || FAMILY_MEMBERS_DEFAULT);
+                    } else {
+                        membersDocRef.set({ list: FAMILY_MEMBERS_DEFAULT }).catch(err => handleFirestoreError(err));
+                        setFamilyMembers(FAMILY_MEMBERS_DEFAULT);
+                    }
+                }, (error) => handleFirestoreError(error));
+
+                return () => {
+                    unsubscribeTx();
+                    unsubscribeGoals();
+                    unsubscribeBudgets();
+                    unsubscribeMembers();
+                };
+            }, [fbServices, user, isOfflineMode]);
+
+            const saveOffline = (key, data) => {
+                if (isOfflineMode) {
+                    localStorage.setItem(key, JSON.stringify(data));
+                }
+            };
+
+            const triggerConfirm = (title, message, callback) => {
+                setConfirmModal({ isOpen: true, title, message, onConfirm: () => { callback(); setConfirmModal({ isOpen: false }); } });
+            };
+
+            const triggerPrompt = (title, placeholder, defaultValue, callback) => {
+                setPromptModal({ isOpen: true, title, placeholder, defaultValue, onSubmit: (val) => { callback(val); setPromptModal({ isOpen: false }); } });
+            };
+
+            useEffect(() => {
+                if (editingTransaction) {
+                    setTxForm({
+                        date: editingTransaction.date,
+                        member: editingTransaction.member,
+                        description: editingTransaction.description,
+                        category: editingTransaction.category,
+                        amount: editingTransaction.amount.toString(),
+                        type: editingTransaction.type,
+                        status: editingTransaction.status,
+                        image: editingTransaction.image || ''
+                    });
+                    setScannedPreview(editingTransaction.image || null);
+                } else {
+                    setTxForm({
+                        date: '2026-05-30',
+                        member: 'Geral',
+                        description: '',
+                        category: 'Alimentação',
+                        amount: '',
+                        type: 'expense',
+                        status: 'pago',
+                        image: ''
+                    });
+                    setScannedPreview(null);
+                }
+                setMatchedTransactionId('');
+            }, [editingTransaction, isTransactionModalOpen]);
+
+            useEffect(() => {
+                if (editingGoal) {
+                    setGoalForm({
+                        name: editingGoal.name,
+                        target: editingGoal.target.toString(),
+                        deadline: editingGoal.deadline
+                    });
+                } else {
+                    setGoalForm({
+                        name: '',
+                        target: '',
+                        deadline: '2026-12'
+                    });
+                }
+            }, [editingGoal, isGoalModalOpen]);
+
+            const availableMonths = useMemo(() => {
+                const months = transactions.map(t => t.date.substring(0, 7));
+                const uniqueMonths = Array.from(new Set(months));
+                if (!uniqueMonths.includes(selectedMonth)) {
+                    uniqueMonths.push(selectedMonth);
+                }
+                return uniqueMonths.sort().reverse();
+            }, [transactions, selectedMonth]);
+
+            const filteredTransactions = useMemo(() => {
+                return transactions.filter(t => {
+                    const monthMatch = t.date.startsWith(selectedMonth);
+                    const memberMatch = selectedMember === 'Todos' || t.member === selectedMember;
+                    return monthMatch && memberMatch;
+                });
+            }, [transactions, selectedMonth, selectedMember]);
+
+            const pendingAccounts = useMemo(() => {
+                return transactions.filter(t => t.type === 'expense' && t.status === 'pendente');
+            }, [transactions]);
+
+            const metrics = useMemo(() => {
+                let totalIncome = 0;
+                let totalExpense = 0;
+                let pendingExpense = 0;
+
+                filteredTransactions.forEach(t => {
+                    if (t.type === 'income') {
+                        totalIncome += t.amount;
+                    } else {
+                        totalExpense += t.amount;
+                        if (t.status === 'pendente') {
+                            pendingExpense += t.amount;
+                        }
+                    }
+                });
+
+                const balance = totalIncome - totalExpense;
+                const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome) * 100 : 0;
+
+                return { totalIncome, totalExpense, balance, savingsRate, pendingExpense };
+            }, [filteredTransactions]);
+
+            const categoryExpenses = useMemo(() => {
+                const map = {};
+                CATEGORIES.forEach(c => map[c.id] = 0);
+                
+                filteredTransactions.forEach(t => {
+                    if (t.type === 'expense') {
+                        map[t.category] = (map[t.category] || 0) + t.amount;
+                    }
+                });
+                return map;
+            }, [filteredTransactions]);
+
+            const healthScoreData = useMemo(() => {
+                let score = 100;
+                const tips = [];
+
+                if (metrics.savingsRate >= 20) {
+                    score += 10;
+                } else if (metrics.savingsRate > 0 && metrics.savingsRate < 15) {
+                    score -= 15;
+                    tips.push(`A taxa de poupança familiar está em ${metrics.savingsRate.toFixed(1)}%. O ideal é guardar pelo menos 15% das receitas.`);
+                } else if (metrics.savingsRate <= 0) {
+                    score -= 30;
+                    tips.push("Atenção! As despesas superaram os rendimentos deste mês. Evite novas dívidas imediatas.");
+                }
+
+                let overBudgets = 0;
+                CATEGORIES.forEach(c => {
+                    const spent = categoryExpenses[c.id] || 0;
+                    const limit = budgets[c.id] || 0;
+                    if (limit > 0 && spent > limit) {
+                        overBudgets++;
+                        tips.push(`O limite de orçamento para '${c.label}' foi superado em R$ ${(spent - limit).toFixed(2)}.`);
+                    }
+                });
+
+                score -= overBudgets * 12;
+
+                if (metrics.pendingExpense > 0) {
+                    tips.push(`Ainda existem R$ ${metrics.pendingExpense.toFixed(2)} em contas com status pendente.`);
+                }
+
+                score = Math.max(0, Math.min(100, score));
+
+                let classification = 'Excelente';
+                let scoreColor = 'text-emerald-500 bg-emerald-50';
+                if (score < 50) {
+                    classification = 'Crítico';
+                    scoreColor = 'text-rose-500 bg-rose-50';
+                } else if (score < 70) {
+                    classification = 'Regular';
+                    scoreColor = 'text-amber-500 bg-amber-50';
+                } else if (score < 85) {
+                    classification = 'Bom';
+                    scoreColor = 'text-blue-500 bg-blue-50';
+                }
+
+                if (tips.length === 0) {
+                    tips.push("Parabéns! Suas finanças estão totalmente organizadas e dentro dos limites estipulados.");
+                }
+
+                return { score, classification, scoreColor, tips };
+            }, [metrics, categoryExpenses, budgets]);
+
+            const monthlyHistory = useMemo(() => {
+                const history = {};
+                transactions.forEach(t => {
+                    const month = t.date.substring(0, 7);
+                    if (!history[month]) {
+                        history[month] = { income: 0, expense: 0 };
+                    }
+                    if (t.type === 'income') {
+                        history[month].income += t.amount;
+                    } else {
+                        history[month].expense += t.amount;
+                    }
+                });
+                return Object.entries(history)
+                    .sort((a, b) => a[0].localeCompare(b[0]))
+                    .slice(-6);
+            }, [transactions]);
+
+            const handleEmailAuthSubmit = async (e) => {
+                e.preventDefault();
+                setAuthErrorMsg(null);
+                const { auth } = fbServices;
+
+                if (!auth) {
+                    setAuthErrorMsg("Serviço de autenticação offline.");
+                    return;
+                }
+
+                try {
+                    if (authTab === 'login') {
+                        await auth.signInWithEmailAndPassword(emailInput, passwordInput);
+                        showToast("Sessão iniciada com sucesso!");
+                    } else {
+                        await auth.createUserWithEmailAndPassword(emailInput, passwordInput);
+                        showToast("Conta criada com sucesso! Bem-vindo.");
+                    }
+                } catch (err) {
+                    console.error(err);
+                    if (err.code === 'auth/invalid-credential') {
+                        setAuthErrorMsg("E-mail ou palavra-passe incorretos.");
+                    } else if (err.code === 'auth/email-already-in-use') {
+                        setAuthErrorMsg("Este e-mail já está em utilização.");
+                    } else {
+                        setAuthErrorMsg(err.message);
+                    }
+                }
+            };
+
+            const handleGoogleAuth = async () => {
+                setAuthErrorMsg(null);
+                const { auth } = fbServices;
+                if (!auth) {
+                    setAuthErrorMsg("Serviço de autenticação offline.");
+                    return;
+                }
+                const provider = new firebase.auth.GoogleAuthProvider();
+                try {
+                    await auth.signInWithPopup(provider);
+                    showToast("Conectado com o Google!");
+                } catch (err) {
+                    console.error(err);
+                    if (err.code === 'auth/unauthorized-domain') {
+                        const currentDomain = window.location.hostname || "o domínio atual";
+                        setAuthErrorMsg(
+                            <div className="text-left space-y-1 mt-1 leading-relaxed text-xs">
+                                <span className="font-bold block text-sm mb-1 text-rose-300">
+                                    <i className="fa-solid fa-triangle-exclamation mr-1"></i> Domínio Não Autorizado no Firebase!
+                                </span>
+                                <span>Para resolver este erro e ativar o login do Google:</span>
+                                <ol className="list-decimal list-inside ml-2 text-[11px] space-y-1 font-semibold text-slate-300">
+                                    <li>Abra a <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer" className="underline text-indigo-400 font-bold hover:text-indigo-300">Consola do Firebase</a>.</li>
+                                    <li>Vá a <strong>Authentication</strong> &gt; aba <strong>Definições</strong> (Settings).</li>
+                                    <li>Em <strong>Domínios Autorizados</strong>, clique em "Adicionar domínio".</li>
+                                    <li>Adicione exatamente: <code className="bg-slate-950 px-1.5 py-0.5 rounded text-rose-350 font-mono text-[10px] break-all border border-slate-800">{currentDomain}</code></li>
+                                </ol>
+                                <span className="block text-[11px] pt-1 text-slate-400 font-medium"><em>Nota: No modo Ficheiro Local (file://), utilize o registo clássico por E-mail/Palavra-passe.</em></span>
+                            </div>
+                        );
+                    } else if (err.code === 'auth/operation-not-supported-in-this-environment') {
+                        setAuthErrorMsg(
+                            <div className="text-left space-y-2 mt-1 leading-relaxed text-xs">
+                                <span className="font-bold block text-sm mb-1 text-rose-300">
+                                    <i className="fa-solid fa-circle-exclamation mr-1"></i> Protocolo Local Não Suportado!
+                                </span>
+                                <span>O login automático do Google não é suportado quando abre o ficheiro diretamente do seu disco rígido (clicando duas vezes no arquivo <code className="bg-slate-950 px-1 py-0.5 rounded text-rose-400 font-mono">file://</code>).</span>
+                                <div className="pt-2 space-y-1.5 border-t border-slate-800">
+                                    <span className="font-bold text-slate-200">Como pode aceder agora?</span>
+                                    <ul className="list-disc list-inside space-y-1 text-slate-300 text-[11px]">
+                                        <li><strong>Solução recomendada (Nuvem)</strong>: Use o formulário clássico de <strong>E-mail e Palavra-passe</strong> acima. Basta digitar os seus dados e clicar em "Registar Conta". **Funciona em duplo clique sem problemas!**</li>
+                                        <li><strong>Modo 100% Offline</strong>: Clique no botão debaixo <strong>"Trabalhar em Modo Offline (Local)"</strong> para testar sem internet.</li>
+                                        <li><strong>Desenvolvedores</strong>: Execute este ficheiro dentro de um servidor web local (ex: extensão <em>Live Server</em> do VS Code ou usando o comando <code className="bg-slate-950 px-1 py-0.5 rounded text-indigo-300 font-mono">npx serve</code> no terminal). Assim o endereço passa a ser <code className="bg-slate-950 px-1 py-0.5 rounded text-indigo-300 font-mono">http://localhost:3000</code> e a conta Google funcionará perfeitamente!</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        );
+                    } else {
+                        setAuthErrorMsg("Erro ao entrar com Google: " + err.message);
+                    }
+                }
+            };
+
+            const handleLogout = async () => {
+                const { auth } = fbServices;
+                localStorage.removeItem('finfamily_offline_mode');
+                setIsOfflineMode(false);
+                setDatabaseMissingError(false);
+                if (auth) {
+                    await auth.signOut();
+                }
+                setUser(null);
+                showToast("Sessão terminada. A ligar online...", "info");
+            };
+
+            const handleConfigSetupSubmit = (e) => {
+                e.preventDefault();
+                const configText = e.target.elements.fbConfigData.value;
+                try {
+                    const parsed = JSON.parse(configText);
+                    if (!parsed.apiKey || !parsed.projectId) throw new Error("Configuração incompleta.");
+                    localStorage.setItem('finfamily_firebase_config', JSON.stringify(parsed));
+                    localStorage.removeItem('finfamily_offline_mode');
+                    setFirebaseConfig(parsed);
+                    setIsOfflineMode(false);
+                    setDatabaseMissingError(false);
+                    showToast("Firebase Configurado com Sucesso!", "success");
+                    setIsConfigModalOpen(false);
+                } catch (err) {
+                    showToast("JSON inválido ou incompleto. Verifique os dados.", "error");
+                }
+            };
+
+            const handleFormSubmit = async (e) => {
+                if (e) e.preventDefault();
+                const { db } = fbServices;
+                
+                const data = {
+                    date: txForm.date,
+                    member: txForm.member,
+                    description: txForm.description.trim() || 'Sem descrição',
+                    category: txForm.category,
+                    amount: parseFloat(txForm.amount) || 0,
+                    type: txForm.type,
+                    status: txForm.status,
+                    image: txForm.image || '' 
+                };
+
+                if (!isOfflineMode && db && user) {
+                    try {
+                        const txCollectionRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('transactions');
+                        
+                        if (txForm.status === 'pago' && matchedTransactionId) {
+                            const origDoc = txCollectionRef.doc(matchedTransactionId);
+                            await origDoc.set({ ...data, status: 'pago' }, { merge: true });
+                            showToast("Fatura liquidada com sucesso!");
+                        } else if (editingTransaction) {
+                            const docRef = txCollectionRef.doc(editingTransaction.id);
+                            await docRef.set(data);
+                            showToast("Transação atualizada na nuvem!");
+                        } else {
+                            await txCollectionRef.add(data);
+                            showToast("Nova transação guardada!");
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        showToast("Erro ao guardar dados.", "error");
+                    }
+                } else {
+                    let nextList = [...transactions];
+                    if (txForm.status === 'pago' && matchedTransactionId) {
+                        nextList = nextList.map(t => t.id === matchedTransactionId ? { ...t, status: 'pago', date: txForm.date, image: txForm.image } : t);
+                        showToast("Fatura liquidada localmente!");
+                    } else if (editingTransaction) {
+                        nextList = nextList.map(t => t.id === editingTransaction.id ? { ...t, ...data } : t);
+                        showToast("Transação local atualizada!");
+                    } else {
+                        const newT = { id: 't-' + Date.now(), ...data };
+                        nextList = [newT, ...nextList];
+                        showToast("Transação local guardada!");
+                    }
+                    setTransactions(nextList);
+                    saveOffline('finfamily_transactions', nextList);
+                }
+                
+                setIsTransactionModalOpen(false);
+                setEditingTransaction(null);
+                setMatchedTransactionId('');
+            };
+
+            const handleDeleteTransaction = async (id) => {
+                triggerConfirm(
+                    "Eliminar Transação",
+                    "Deseja realmente eliminar esta transação permanentemente?",
+                    async () => {
+                        const { db } = fbServices;
+                        if (!isOfflineMode && db && user) {
+                            try {
+                                const docRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('transactions').doc(id);
+                                await docRef.delete();
+                                showToast("Transação eliminada da nuvem.", "info");
+                            } catch (e) {
+                                showToast("Erro ao eliminar dados.", "error");
+                            }
+                        } else {
+                            const nextList = transactions.filter(t => t.id !== id);
+                            setTransactions(nextList);
+                            saveOffline('finfamily_transactions', nextList);
+                            showToast("Transação removida localmente.", "info");
+                        }
+                    }
+                );
+            };
+
+            const handleUpdateBudget = async (category, value) => {
+                const val = parseFloat(value) || 0;
+                const nextBudgets = { ...budgets, [category]: val };
+                setBudgets(nextBudgets);
+
+                const { db } = fbServices;
+                if (!isOfflineMode && db && user) {
+                    try {
+                        const docRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('settings').doc('budgets');
+                        await docRef.set(nextBudgets);
+                        showToast("Teto orçamental atualizado na nuvem!");
+                    } catch (e) {
+                        showToast("Erro ao atualizar tetos.", "error");
+                    }
+                } else {
+                    saveOffline('finfamily_budgets', nextBudgets);
+                    showToast("Orçamento updated!");
+                }
+            };
+
+            const handleGoalFormSubmit = async (e) => {
+                if (e) e.preventDefault();
+                const { db } = fbServices;
+                const data = {
+                    name: goalForm.name.trim() || 'Minha Meta',
+                    target: parseFloat(goalForm.target) || 1000,
+                    deadline: goalForm.deadline,
+                    current: editingGoal ? editingGoal.current : 0
+                };
+
+                if (!isOfflineMode && db && user) {
+                    try {
+                        const goalsCollectionRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('goals');
+                        if (editingGoal) {
+                            const docRef = goalsCollectionRef.doc(editingGoal.id);
+                            await docRef.set(data);
+                            showToast("Objetivo atualizado na nuvem!");
+                        } else {
+                            await goalsCollectionRef.add(data);
+                            showToast("Nova meta guardada na nuvem!");
+                        }
+                    } catch (e) {
+                        showToast("Erro ao guardar objetivo.", "error");
+                    }
+                } else {
+                    let nextGoals = [...goals];
+                    if (editingGoal) {
+                        nextGoals = nextGoals.map(g => g.id === editingGoal.id ? { ...g, ...data } : g);
+                    } else {
+                        const newGoal = { id: 'g-' + Date.now(), ...data };
+                        nextGoals = [...nextGoals, newGoal];
+                    }
+                    setGoals(nextGoals);
+                    saveOffline('finfamily_goals', nextGoals);
+                    showToast("Meta guardada localmente!");
+                }
+                setIsGoalModalOpen(false);
+                setEditingGoal(null);
+            };
+
+            const handleUpdateGoalValue = async (id, amount, isDeposit) => {
+                const nextGoals = goals.map(g => {
+                    if (g.id === id) {
+                        const factor = isDeposit ? 1 : -1;
+                        const nextVal = Math.max(0, Math.min(g.target, g.current + (amount * factor)));
+                        return { ...g, current: nextVal };
+                    }
+                    return g;
+                });
+                setGoals(nextGoals);
+
+                const updatedGoal = nextGoals.find(g => g.id === id);
+                const { db } = fbServices;
+
+                if (!isOfflineMode && db && user && updatedGoal) {
+                    try {
+                        const docRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('goals').doc(id);
+                        await docRef.set(updatedGoal);
+                        showToast("Poupança sincronizada em tempo real!");
+                    } catch (e) {
+                        showToast("Erro ao atualizar poupança.", "error");
+                    }
+                } else {
+                    saveOffline('finfamily_goals', nextGoals);
+                    showToast("Saldo do objetivo atualizado localmente!");
+                }
+            };
+
+            const handleDeleteGoal = async (id) => {
+                triggerConfirm(
+                    "Eliminar Meta",
+                    "Tem certeza de que deseja remover esta meta de planeamento familiar?",
+                    async () => {
+                        const { db } = fbServices;
+                        if (!isOfflineMode && db && user) {
+                            try {
+                                const docRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('goals').doc(id);
+                                await docRef.delete();
+                                showToast("Meta removida da nuvem.", "info");
+                            } catch (e) {
+                                showToast("Erro ao remover meta.", "error");
+                            }
+                        } else {
+                            const nextList = goals.filter(g => g.id !== id);
+                            setGoals(nextList);
+                            saveOffline('finfamily_goals', nextList);
+                            showToast("Meta removida localmente.", "info");
+                        }
+                    }
+                );
+            };
+
+            const handleAddFamilyMember = () => {
+                triggerPrompt(
+                    "Adicionar Membro Familiar",
+                    "Escreva o nome do novo membro da família:",
+                    "",
+                    async (name) => {
+                        if (name && name.trim()) {
+                            if (familyMembers.includes(name.trim())) {
+                                showToast("Este membro já existe!", "error");
+                                return;
+                            }
+                            const nextMembers = [...familyMembers, name.trim()];
+                            setFamilyMembers(nextMembers);
+
+                            const { db } = fbServices;
+                            if (!isOfflineMode && db && user) {
+                                try {
+                                    const docRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('settings').doc('members');
+                                    await docRef.set({ list: nextMembers });
+                                    showToast("Membro de família adicionado!");
+                                } catch (e) {
+                                    showToast("Erro ao sincronizar membros.", "error");
+                                }
+                            } else {
+                                saveOffline('finfamily_members', nextMembers);
+                                showToast(`Membro '${name}' adicionado!`);
+                            }
+                        }
+                    }
+                );
+            };
+
+            // Processador Multimodal de Imagens atualizado para o modelo gemini-2.5-flash-preview-09-2025 (MANDATÓRIO)
+            const handleImageUploadAndOCR = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                setIsScanningImage(true);
+                showToast("A compactar imagem e a analisar com o Gemini 2.5 IA...", "info");
+
+                try {
+                    const compressedBase64 = await compressImageFile(file, 450, 450, 0.6);
+                    setScannedPreview(compressedBase64);
+                    setTxForm(prev => ({ ...prev, image: compressedBase64 }));
+
+                    const rawBase64Data = compressedBase64.split(',')[1];
+                    const systemPrompt = `Você é o leitor financeiro de Inteligência Artificial do FinFamily, especializado em boletos, faturas de concessionárias (ENEL, Sabesp, Vivo), extratos e comprovantes de pagamentos.
+Sua missão é ler o documento e categorizar com precisão nas categorias permitidas: Moradia, Alimentação, Transporte, Lazer, Saúde, Educação, Vestuário, Outros.
+Defina a data no padrão 'YYYY-MM-DD'. Retorne dados de forma estritamente estruturada em JSON sem formatação adicional ou tags markdown.`;
+
+                    const userQuery = `Analise o documento e extraia o valor do pagamento/débito, fornecedor e data de vencimento/pagamento.
+Se o propósito for 'boleto' (lançamento de débito pendente), configure o 'status' as 'pendente'. Se for 'comprovante', configure como 'pago'.
+Propósito solicitado: "${scanPurpose}"`;
+
+                    const payload = {
+                        contents: [{
+                            role: "user",
+                            parts: [
+                                { text: userQuery },
+                                {
+                                    inlineData: {
+                                        mimeType: "image/jpeg",
+                                        data: rawBase64Data
+                                    }
+                                }
+                            ]
+                        }],
+                        systemInstruction: {
+                            parts: [{ text: systemPrompt }]
+                        },
+                        generationConfig: {
+                            responseMimeType: "application/json",
+                            responseSchema: {
+                                type: "OBJECT",
+                                properties: {
+                                    description: { type: "STRING" },
+                                    amount: { type: "NUMBER" },
+                                    category: { type: "STRING", enum: ["Moradia", "Alimentação", "Transporte", "Lazer", "Saúde", "Educação", "Vestuário", "Outros"] },
+                                    type: { type: "STRING", enum: ["expense"] },
+                                    status: { type: "STRING", enum: ["pago", "pendente"] },
+                                    date: { type: "STRING" },
+                                    member: { type: "STRING" }
+                                },
+                                required: ["description", "amount", "category", "type", "status", "date", "member"]
+                            }
+                        }
+                    };
+
+                    const apiKey = ""; // Mantido vazio para a injeção do ambiente em runtime (MANDATÓRIO)
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+                    const response = await fetchWithRetry(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Erro na comunicação com a IA: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                    if (textResponse) {
+                        // Limpa tags de código markdown caso venham por engano
+                        let cleanText = textResponse;
+                        if (cleanText.includes("```")) {
+                            cleanText = cleanText.replace(/```json/g, "").replace(/```/g, "").trim();
+                        }
+                        
+                        const parsedData = JSON.parse(cleanText);
+                        const assignedMember = familyMembers.includes(parsedData.member) ? parsedData.member : 'Geral';
+
+                        setTxForm(prev => ({
+                            ...prev,
+                            date: parsedData.date || '2026-05-30',
+                            member: assignedMember,
+                            description: parsedData.description || 'Lançamento IA',
+                            category: parsedData.category || 'Outros',
+                            amount: parsedData.amount ? parsedData.amount.toString() : '0',
+                            type: 'expense',
+                            status: scanPurpose === 'comprovante' ? 'pago' : 'pendente'
+                        }));
+
+                        if (scanPurpose === 'comprovante') {
+                            const parsedVal = parseFloat(parsedData.amount) || 0;
+                            const possibleMatch = pendingAccounts.find(t => {
+                                const valueMatch = Math.abs(t.amount - parsedVal) < 1.5;
+                                const descMatch = t.description.toLowerCase().includes(parsedData.description.toLowerCase()) || 
+                                                 parsedData.description.toLowerCase().includes(t.description.toLowerCase());
+                                return valueMatch || descMatch;
+                            });
+
+                            if (possibleMatch) {
+                                setMatchedTransactionId(possibleMatch.id);
+                                showToast(`A IA associou este comprovativo à conta: "${possibleMatch.description}" de R$ ${possibleMatch.amount.toFixed(2)}`, "info");
+                            } else {
+                                showToast("Leitura concluída! Não foi encontrada nenhuma conta correspondente para liquidação.", "info");
+                            }
+                        } else {
+                            showToast("Fatura futura identificada e pré-preenchida com sucesso!", "success");
+                        }
+                    }
+                } catch (error) {
+                    console.error(error);
+                    showToast("Erro ao processar imagem. Preencha manualmente os dados da fatura.", "error");
+                } finally {
+                    setIsScanningImage(false);
+                }
+            };
+
+            // Geração de Conselhos atualizada para o modelo gemini-2.5-flash-preview-09-2025
+            const generateGeminiAdvice = async () => {
+                setIsAiLoading(true);
+                setAiError(null);
+                setAiAdvice(null);
+                
+                const systemPrompt = `Você é o Planejador Financeiro IA do FinFamily. Forneça orientações acionáveis em Português para uma saúde financeira impecável.`;
+                const dataSummary = {
+                    mes: selectedMonth,
+                    receitas: metrics.totalIncome,
+                    despesas: metrics.totalExpense,
+                    saldo: metrics.balance,
+                    poupanca: metrics.savingsRate.toFixed(1) + "%",
+                    porCategoria: CATEGORIES.map(c => ({
+                        categoria: c.label,
+                        gasto: categoryExpenses[c.id] || 0,
+                        limite: budgets[c.id] || 0
+                    }))
+                };
+
+                const userQuery = `Faça um diagnóstico do mês com base nestes dados consolidados: ${JSON.stringify(dataSummary)}`;
+                
+                try {
+                    const apiKey = "";
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                    
+                    const response = await fetchWithRetry(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: userQuery }] }],
+                            systemInstruction: { parts: [{ text: systemPrompt }] }
+                        })
+                    });
+                    
+                    if (!response.ok) throw new Error("API Limit reached.");
+                    
+                    const result = await response.json();
+                    const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                    setAiAdvice(text);
+                } catch (error) {
+                    setAiError("Não foi possível obter o diagnóstico automático no momento.");
+                } finally {
+                    setIsAiLoading(false);
+                }
+            };
+
+            // Chat de Assistência atualizado para o modelo gemini-2.5-flash-preview-09-2025
+            const handleSendAssistantMessage = async (e) => {
+                if (e) e.preventDefault();
+                const userText = assistantInput.trim();
+                const isInitial = assistantMessages.length === 0;
+                
+                if (!isInitial && !userText) return;
+
+                let newMessages = [...assistantMessages];
+                if (!isInitial) {
+                    newMessages.push({ role: 'user', text: userText });
+                    setAssistantMessages(newMessages);
+                    setAssistantInput('');
+                } else {
+                    newMessages.push({ role: 'user', text: "A solicitar análise financeira inteligente..." });
+                    setAssistantMessages(newMessages);
+                }
+
+                setIsAssistantLoading(true);
+                setAssistantError(null);
+
+                const financialSummaryContext = `
+DADOS FINANCEIROS ATUAIS (${selectedMonth}):
+- Receita Mensal Total: R$ ${metrics.totalIncome.toFixed(2)}
+- Despesa Mensal Total: R$ ${metrics.totalExpense.toFixed(2)}
+- Saldo Líquido do Mês: R$ ${metrics.balance.toFixed(2)}
+- Taxa de Poupança Familiar: ${metrics.savingsRate.toFixed(1)}%
+`;
+
+                const contents = [];
+                assistantMessages.forEach(msg => {
+                    contents.push({
+                        role: msg.role === 'user' ? 'user' : 'model',
+                        parts: [{ text: msg.text }]
+                    });
+                });
+
+                contents.push({
+                    role: 'user',
+                    parts: [{ text: isInitial ? `Olá! Analise as minhas metas e faturas:\n${financialSummaryContext}` : `Pergunta: "${userText}"\nFinanças contextuais:\n${financialSummaryContext}` }]
+                });
+
+                try {
+                    const apiKey = "";
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+                    const response = await fetchWithRetry(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: contents,
+                            systemInstruction: { parts: [{ text: "Você é o Assessor de Saúde Financeira Virtual do FinFamily." }] }
+                        })
+                    });
+
+                    if (!response.ok) throw new Error("Erro na API.");
+
+                    const result = await response.json();
+                    const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                    setAssistantMessages(prev => [...(isInitial ? [] : prev), { role: 'model', text }]);
+                } catch (error) {
+                    setAssistantError("Erro ao comunicar com o servidor da IA.");
+                } finally {
+                    setIsAssistantLoading(false);
+                }
+            };
+
+            const renderMarkdown = (text) => {
+                if (!text) return null;
+                return text.split('\n').map((line, idx) => {
+                    let trimmed = line.trim();
+                    if (!trimmed) return <div key={idx} className="h-2"></div>;
+                    if (trimmed.startsWith('###')) {
+                        return <h5 key={idx} className="text-sm font-bold text-slate-800 mt-4 mb-2">{trimmed.replace('###', '').trim()}</h5>;
+                    }
+                    if (trimmed.startsWith('#')) {
+                        return <h4 key={idx} className="text-base font-extrabold text-slate-900 mt-5 mb-2.5">{trimmed.replace(/^#+\s*/, '')}</h4>;
+                    }
+                    if (trimmed.startsWith('*') || trimmed.startsWith('-')) {
+                        return <li key={idx} className="ml-5 list-disc text-xs text-slate-600 mb-1.5">{trimmed.substring(1).trim()}</li>;
+                    }
+                    return <p key={idx} className="text-xs text-slate-600 mb-2">{trimmed}</p>;
+                });
+            };
+
+            if (authLoading) {
+                return (
+                    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-white text-center">
+                        <i className="fa-solid fa-circle-notch animate-spin text-4xl text-indigo-500 mb-4"></i>
+                        <h2 className="font-bold text-lg animate-pulse">A ligar ao FinFamily...</h2>
+                        <p className="text-xs text-slate-400 mt-1">A restabelecer a ligação com a base de dados familiar segura.</p>
+                    </div>
+                );
+            }
+
+            if (!user && !isOfflineMode) {
+                return (
+                    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6">
+                        <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl animate-fadeIn">
+                            <div className="flex items-center justify-center gap-3 mb-6">
+                                <div className="bg-gradient-to-tr from-indigo-500 to-violet-500 p-3 rounded-2xl text-white">
+                                    <i className="fa-solid fa-wallet text-2xl"></i>
+                                </div>
+                                <h1 className="font-black text-2xl text-white tracking-tight">FinFamily</h1>
+                            </div>
+                            
+                            <p className="text-center text-xs text-slate-400 mb-6 font-medium">Gestão e controlo financeiro em tempo real para toda a família.</p>
+
+                            <div className="flex border-b border-slate-800 mb-6 text-sm font-semibold">
+                                <button onClick={() => { setAuthTab('login'); setAuthErrorMsg(null); }} className={`flex-1 pb-3 text-center transition ${authTab === 'login' ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-slate-500'}`}>Iniciar Sessão</button>
+                                <button onClick={() => { setAuthTab('signup'); setAuthErrorMsg(null); }} className={`flex-1 pb-3 text-center transition ${authTab === 'signup' ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-slate-500'}`}>Registar Conta</button>
+                            </div>
+
+                            <form onSubmit={handleEmailAuthSubmit} className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">E-mail do Utilizador</label>
+                                    <input required type="email" value={emailInput} onChange={(e) => setEmailInput(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="exemplo@finfamily.pt" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Palavra-passe</label>
+                                    <input required type="password" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="••••••••" />
+                                </div>
+
+                                {authErrorMsg && (
+                                    <div className="bg-rose-950/50 border border-rose-900/50 text-rose-300 text-xs p-4 rounded-xl flex items-start gap-2.5">
+                                        <i className="fa-solid fa-triangle-exclamation mt-0.5 flex-shrink-0 text-rose-400"></i>
+                                        <div className="flex-1">{authErrorMsg}</div>
+                                    </div>
+                                )}
+
+                                <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 py-3 rounded-xl font-bold text-white text-sm transition shadow-lg shadow-indigo-600/25">{authTab === 'login' ? 'Entrar' : 'Confirmar Registo'}</button>
+                            </form>
+
+                            <div className="mt-4">
+                                <button onClick={handleGoogleAuth} className="w-full bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 py-3 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 shadow-md">
+                                    <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)">
+                                        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                                        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                                        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
+                                        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
+                                    </svg>
+                                    <span>Entrar com a Conta Google</span>
+                                </button>
+                            </div>
+
+                            <div className="relative my-6 flex items-center justify-center">
+                                <div className="border-t border-slate-800 w-full absolute"></div>
+                                <span className="bg-slate-900 px-3 text-[10px] uppercase font-bold text-slate-500 relative z-10">Uso Local</span>
+                            </div>
+
+                            <button onClick={() => setIsOfflineMode(true)} className="w-full bg-slate-850 hover:bg-slate-800 py-3 rounded-xl font-bold text-slate-300 text-sm transition">Trabalhar em Modo Offline (Local)</button>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="flex flex-col min-h-screen">
+                    
+                    {toast && (
+                        <div className={`fixed top-4 right-4 z-50 flex items-center p-4 rounded-xl shadow-lg border text-white transition-all duration-300 animate-bounce ${
+                            toast.type === 'success' ? 'bg-emerald-600 border-emerald-500' :
+                            toast.type === 'info' ? 'bg-sky-600 border-sky-500' : 'bg-rose-600 border-rose-500'
+                        }`}>
+                            <i className={`fas mr-3 ${toast.type === 'success' ? 'fa-check-circle' : toast.type === 'info' ? 'fa-info-circle' : 'fa-exclamation-triangle'}`}></i>
+                            <span className="font-medium text-sm">{toast.message}</span>
+                        </div>
+                    )}
+
+                    {confirmModal.isOpen && (
+                        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 border border-slate-100 animate-fadeIn">
+                                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                                    <i className="fa-solid fa-circle-question text-amber-500"></i> {confirmModal.title}
+                                </h3>
+                                <p className="text-xs text-slate-500 mt-2 leading-relaxed">{confirmModal.message}</p>
+                                <div className="flex gap-3 mt-6">
+                                    <button onClick={() => setConfirmModal({ isOpen: false })} className="flex-1 py-2 text-xs font-bold text-slate-500 border border-slate-200 rounded-xl hover:bg-slate-50 transition">Cancelar</button>
+                                    <button onClick={confirmModal.onConfirm} className="flex-1 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition shadow-md">Confirmar</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {promptModal.isOpen && (
+                        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 border border-slate-100 animate-fadeIn">
+                                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                                    <i className="fa-solid fa-file-pen text-indigo-500"></i> {promptModal.title}
+                                </h3>
+                                <div className="mt-4">
+                                    <input type="text" id="prompt-input-field" defaultValue={promptModal.defaultValue} placeholder={promptModal.placeholder} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white" onKeyDown={(e) => { if (e.key === 'Enter') promptModal.onSubmit(e.target.value); }} />
+                                </div>
+                                <div className="flex gap-3 mt-6">
+                                    <button onClick={() => setPromptModal({ isOpen: false })} className="flex-1 py-2 text-xs font-bold text-slate-500 border border-slate-200 rounded-xl hover:bg-slate-50 transition">Cancelar</button>
+                                    <button onClick={() => { const val = document.getElementById('prompt-input-field').value; promptModal.onSubmit(val); }} className="flex-1 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition shadow-md">Confirmar</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {viewingImage && (
+                        <div className="fixed inset-0 z-[110] bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-4">
+                            <div className="absolute top-4 right-4 flex gap-4">
+                                <a href={viewingImage} download="comprovativo.jpg" className="px-4 py-2 bg-slate-800/80 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-2">
+                                    <i className="fa-solid fa-download"></i> Guardar Ficheiro
+                                </a>
+                                <button onClick={() => setViewingImage(null)} className="p-2 bg-slate-800/85 hover:bg-rose-600 text-white rounded-full transition w-10 h-10 flex items-center justify-center">
+                                    <i className="fa-solid fa-xmark text-lg"></i>
+                                </button>
+                            </div>
+                            <div className="max-w-4xl max-h-[80vh] overflow-hidden flex items-center justify-center rounded-2xl shadow-2xl bg-slate-900 border border-slate-800 p-2">
+                                <img src={viewingImage} className="max-w-full max-h-[75vh] object-contain rounded-xl" alt="Documento anexado" />
+                            </div>
+                            <span className="text-slate-400 text-xs mt-3 font-semibold"><i className="fa-solid fa-circle-info mr-1"></i> Imagem otimizada para redução de tráfego de dados.</span>
+                        </div>
+                    )}
+
+                    {/* CABEÇALHO */}
+                    <header className="bg-slate-900 text-white shadow-xl sticky top-0 z-40">
+                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                            <div className="flex items-center justify-between h-16">
+                                <div className="flex items-center gap-3">
+                                    <div className="bg-gradient-to-tr from-indigo-500 to-violet-500 p-2.5 rounded-xl text-white shadow-md">
+                                        <i className="fa-solid fa-wallet text-xl"></i>
+                                    </div>
+                                    <div>
+                                        <h1 className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent">FinFamily</h1>
+                                        <span className="text-[10px] text-slate-400 font-medium tracking-wide block">Controlo Familiar & Inteligência Artificial</span>
+                                    </div>
+                                </div>
+
+                                <div className="hidden md:flex items-center space-x-1">
+                                    <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2 rounded-lg font-semibold text-sm transition ${activeTab === 'dashboard' ? 'bg-slate-800 text-white border-b-2 border-indigo-400' : 'text-slate-300 hover:text-white hover:bg-slate-800'}`}><i className="fa-solid fa-chart-pie mr-2"></i>Dashboard</button>
+                                    <button onClick={() => setActiveTab('transactions')} className={`px-4 py-2 rounded-lg font-semibold text-sm transition ${activeTab === 'transactions' ? 'bg-slate-800 text-white border-b-2 border-indigo-400' : 'text-slate-300 hover:text-white hover:bg-slate-800'}`}><i className="fa-solid fa-receipt mr-2"></i>Transações e Contas</button>
+                                    <button onClick={() => setActiveTab('budgets')} className={`px-4 py-2 rounded-lg font-semibold text-sm transition ${activeTab === 'budgets' ? 'bg-slate-800 text-white border-b-2 border-indigo-400' : 'text-slate-300 hover:text-white hover:bg-slate-800'}`}><i className="fa-solid fa-scale-balanced mr-2"></i>Orçamentos</button>
+                                    <button onClick={() => setActiveTab('goals')} className={`px-4 py-2 rounded-lg font-semibold text-sm transition ${activeTab === 'goals' ? 'bg-slate-800 text-white border-b-2 border-indigo-400' : 'text-slate-300 hover:text-white hover:bg-slate-800'}`}><i className="fa-solid fa-bullseye mr-2"></i>Metas</button>
+                                    <button onClick={() => setActiveTab('analysis')} className={`px-4 py-2 rounded-lg font-semibold text-sm transition ${activeTab === 'analysis' ? 'bg-slate-800 text-white border-b-2 border-indigo-400' : 'text-slate-300 hover:text-white hover:bg-slate-800'}`}><i className="fa-solid fa-heart-pulse mr-2"></i>Avaliação</button>
+                                </div>
+
+                                <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-1 bg-slate-850 px-3 py-1 rounded-full border border-slate-800">
+                                        <span className={`w-2 h-2 rounded-full ${isOfflineMode ? 'bg-orange-500' : 'bg-emerald-500 animate-pulse'}`}></span>
+                                        <span className="text-[10px] font-bold tracking-wider text-slate-300 uppercase">{isOfflineMode ? 'Modo Offline' : 'Nuvem Ativa'}</span>
+                                    </div>
+                                    
+                                    {isOfflineMode && (
+                                        <button onClick={() => { localStorage.removeItem('finfamily_offline_mode'); setIsOfflineMode(false); setDatabaseMissingError(false); showToast("A ligar ao Firebase...", "info"); }} className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1"><i className="fa-solid fa-wifi"></i> <span>Ir Online</span></button>
+                                    )}
+                                    
+                                    <button onClick={handleLogout} className="p-2 bg-slate-800 hover:bg-rose-900 rounded-lg text-slate-300 hover:text-white transition" title="Terminar Sessão / Logout"><i className="fa-solid fa-right-from-bracket"></i></button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Mobile Menu */}
+                        <div className="md:hidden flex justify-around bg-slate-900 border-t border-slate-800 py-2">
+                            <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'dashboard' ? 'text-indigo-400' : 'text-slate-400'}`}><i className="fa-solid fa-chart-pie text-lg"></i><span className="text-[10px]">Dashboard</span></button>
+                            <button onClick={() => setActiveTab('transactions')} className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'transactions' ? 'text-indigo-400' : 'text-slate-400'}`}><i className="fa-solid fa-receipt text-lg"></i><span className="text-[10px]">Transações</span></button>
+                            <button onClick={() => setActiveTab('budgets')} className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'budgets' ? 'text-indigo-400' : 'text-slate-400'}`}><i className="fa-solid fa-scale-balanced text-lg"></i><span className="text-[10px]">Orçamentos</span></button>
+                            <button onClick={() => setActiveTab('goals')} className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'goals' ? 'text-indigo-400' : 'text-slate-400'}`}><i className="fa-solid fa-bullseye text-lg"></i><span className="text-[10px]">Metas</span></button>
+                            <button onClick={() => setActiveTab('analysis')} className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'analysis' ? 'text-indigo-400' : 'text-slate-400'}`}><i className="fa-solid fa-heart-pulse text-lg"></i><span className="text-[10px]">Avaliação</span></button>
+                        </div>
+                    </header>
+
+                    {/* Filtros */}
+                    <section className="bg-white border-b border-slate-200 py-4 shadow-sm">
+                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-wrap gap-4 items-center justify-between">
+                            <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
+                                <div className="flex items-center gap-2">
+                                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1"><i className="fa-regular fa-calendar"></i> Período:</label>
+                                    <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="bg-slate-100 hover:bg-slate-200 border-none rounded-lg px-3 py-1.5 font-semibold text-slate-700 text-sm focus:ring-2 focus:ring-indigo-500 transition cursor-pointer">
+                                        {availableMonths.map(m => {
+                                            const [year, month] = m.split('-');
+                                            const monthNames = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+                                            return <option key={m} value={m}>{monthNames[parseInt(month)-1]} / {year}</option>;
+                                        })}
+                                        <option value="2026-06">Jun / 2026</option>
+                                        <option value="2026-07">Jul / 2026</option>
+                                    </select>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1"><i className="fa-regular fa-user"></i> Familiar:</label>
+                                    <select value={selectedMember} onChange={(e) => setSelectedMember(e.target.value)} className="bg-slate-100 hover:bg-slate-200 border-none rounded-lg px-3 py-1.5 font-semibold text-slate-700 text-sm focus:ring-2 focus:ring-indigo-500 transition cursor-pointer">
+                                        {familyMembers.map(m => (
+                                            <option key={m} value={m}>{m === 'Todos' ? '👨‍👩‍👧‍👦 Toda a Família' : `👤 ${m}`}</option>
+                                        ))}
+                                    </select>
+                                    <button onClick={handleAddFamilyMember} className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition" title="Adicionar Membro Familiar"><i className="fa-solid fa-plus-circle text-lg"></i></button>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 w-full md:w-auto">
+                                <button onClick={() => { setEditingTransaction(null); setIsTransactionModalOpen(true); }} className="flex-1 md:flex-initial bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-5 rounded-xl shadow-md transition duration-200 text-sm flex items-center justify-center gap-2"><i className="fa-solid fa-plus"></i> Manual</button>
+                                <button onClick={() => { setScanPurpose('boleto'); setEditingTransaction(null); setIsTransactionModalOpen(true); setTimeout(() => fileInputRef.current?.click(), 100); }} className="flex-1 md:flex-initial bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-bold py-2.5 px-5 rounded-xl shadow-md transition duration-200 text-sm flex items-center justify-center gap-2 animate-pulse" title="Escanear Fatura de Serviço ou Boleto"><i className="fa-solid fa-file-invoice-dollar"></i> <span>Escanear Fatura</span></button>
+                                <button onClick={() => { setScanPurpose('comprovante'); setEditingTransaction(null); setIsTransactionModalOpen(true); setTimeout(() => fileInputRef.current?.click(), 100); }} className="flex-1 md:flex-initial bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold py-2.5 px-5 rounded-xl shadow-md transition duration-200 text-sm flex items-center justify-center gap-2" title="Confirmar pagamento de despesa em aberto"><i className="fa-solid fa-circle-check"></i> <span>Liquidar Conta</span></button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <main className="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+                        
+                        {/* PAINEL DE AJUDA DO FIRESTORE */}
+                        {databaseMissingError && (
+                            <div className="bg-rose-50 border border-rose-200 rounded-3xl p-6 mb-8 text-slate-800 shadow-sm animate-fadeIn">
+                                <h3 className="font-extrabold text-base text-rose-800 flex items-center gap-2">
+                                    <i className="fa-solid fa-database text-xl animate-pulse"></i> Base de dados Cloud Firestore não ativada no seu projeto!
+                                </h3>
+                                <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                                    O seu projeto Firebase existe, mas o recurso <strong>Firestore Database</strong> ainda não foi ativado para ele. O sistema ativou o <strong>Modo Offline (dados locais)</strong> automaticamente para não impedir a utilização, mas para ativar a sincronização em tempo real na nuvem, basta seguir este passo a passo rápido (30 segundos):
+                                </p>
+                                <div className="mt-4 bg-white/70 rounded-2xl p-4 border border-rose-100 text-xs font-medium text-slate-700 space-y-2">
+                                    <p className="font-bold text-slate-900"><i className="fa-solid fa-list-check text-indigo-500 mr-1.5"></i>Como ativar no Console do Firebase:</p>
+                                    <ol className="list-decimal list-inside ml-2 space-y-1 text-slate-600">
+                                        <li>Aceda diretamente ao link do seu projeto: <a href="[https://console.firebase.google.com/project/finance-duck-943d3/firestore](https://console.firebase.google.com/project/finance-duck-943d3/firestore)" target="_blank" rel="noopener noreferrer" className="underline text-indigo-600 font-bold hover:text-indigo-800">Ativar Firestore no Projeto</a></li>
+                                        <li>Clique no botão azul <strong>"Criar banco de dados"</strong> (Create database).</li>
+                                        <li>Escolha a localização do servidor (pode manter a sugerida) e clique em <strong>Seguinte</strong>.</li>
+                                        <li>Selecione a opção <strong>"Iniciar em modo de teste"</strong> (Start in test mode) para permitir a leitura/escrita e clique em <strong>Ativar / Ativar banco de dados</strong>.</li>
+                                        <li>Volte aqui e clique no botão azul <strong>"Ir Online"</strong> no cabeçalho. Pronto!</li>
+                                    </ol>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'dashboard' && (
+                            <div className="space-y-8 animate-fadeIn">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                                    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+                                        <div>
+                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Receitas</span>
+                                            <h3 className="text-2xl font-extrabold text-emerald-600 mt-1">R$ {metrics.totalIncome.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3>
+                                            <span className="text-[10px] text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-full font-bold mt-2 inline-block">Mês Corrente</span>
+                                        </div>
+                                        <div className="bg-emerald-50 text-emerald-600 p-4 rounded-xl"><i className="fa-solid fa-circle-arrow-up text-2xl"></i></div>
+                                    </div>
+
+                                    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+                                        <div>
+                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Despesas</span>
+                                            <h3 className="text-2xl font-extrabold text-rose-600 mt-1">R$ {metrics.totalExpense.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3>
+                                            {metrics.pendingExpense > 0 ? (
+                                                <span className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full font-bold mt-2 inline-block animate-pulse">R$ {metrics.pendingExpense.toFixed(2)} Pendente</span>
+                                            ) : (
+                                                <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full font-bold mt-2 inline-block">Tudo Pago</span>
+                                            )}
+                                        </div>
+                                        <div className="bg-rose-50 text-rose-600 p-4 rounded-xl"><i className="fa-solid fa-circle-arrow-down text-2xl"></i></div>
+                                    </div>
+
+                                    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+                                        <div>
+                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Saldo Líquido</span>
+                                            <h3 className={`text-2xl font-extrabold mt-1 ${metrics.balance >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>R$ {metrics.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3>
+                                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold mt-2 inline-block ${metrics.balance >= 0 ? 'text-indigo-600 bg-indigo-50' : 'text-rose-600 bg-rose-50'}`}>{metrics.balance >= 0 ? 'Superavitário' : 'Orçamento Negativo'}</span>
+                                        </div>
+                                        <div className={`p-4 rounded-xl ${metrics.balance >= 0 ? 'bg-indigo-50 text-indigo-600' : 'bg-rose-50 text-rose-600'}`}><i className="fa-solid fa-scale-unbalanced text-2xl"></i></div>
+                                    </div>
+
+                                    <div onClick={() => setActiveTab('analysis')} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between cursor-pointer hover:border-indigo-300 transition group">
+                                        <div>
+                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Saúde Financeira</span>
+                                            <h3 className="text-2xl font-extrabold text-slate-800 mt-1 flex items-baseline gap-1">{healthScoreData.score} <span className="text-xs font-medium text-slate-400">/ 100</span></h3>
+                                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold mt-2 inline-block ${healthScoreData.scoreColor}`}>{healthScoreData.classification}</span>
+                                        </div>
+                                        <div className={`p-4 rounded-xl group-hover:scale-105 transition duration-300 ${healthScoreData.scoreColor}`}><i className="fa-solid fa-heart-pulse text-2xl"></i></div>
+                                    </div>
+                                </div>
+
+                                {pendingAccounts.length > 0 && (
+                                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-3 bg-amber-100 rounded-xl text-amber-700"><i className="fa-solid fa-file-invoice text-xl animate-bounce"></i></div>
+                                            <div>
+                                                <h4 className="text-sm font-bold text-slate-800">Dispõe de {pendingAccounts.length} faturas/contas em aberto</h4>
+                                                <p className="text-xs text-slate-500">Pronto para liquidar? Faça upload do comprovativo de pagamento bancário ou Pix.</p>
+                                            </div>
+                                        </div>
+                                        <button onClick={() => setActiveTab('transactions')} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-xs font-bold hover:bg-amber-700 transition">Ver Contas Pendentes</button>
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                    {/* Comparativo Gráfico */}
+                                    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm lg:col-span-2 flex flex-col justify-between">
+                                        <div className="flex items-center justify-between mb-6">
+                                            <div>
+                                                <h4 className="font-extrabold text-slate-700 text-lg">Comparativo de Fluxos</h4>
+                                                <p className="text-xs text-slate-400">Análise histórica dos fluxos registados</p>
+                                            </div>
+                                            <div className="flex gap-4 text-xs font-bold">
+                                                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-500 inline-block"></span> Receitas</span>
+                                                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-rose-500 inline-block"></span> Despesas</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="h-64 flex items-end justify-between gap-6 px-4 pt-4 border-b border-slate-100 relative">
+                                            {monthlyHistory.map(([month, data]) => {
+                                                const maxVal = Math.max(...monthlyHistory.map(item => Math.max(item[1].income, item[1].expense)), 1);
+                                                const incHeight = (data.income / maxVal) * 100;
+                                                const expHeight = (data.expense / maxVal) * 100;
+                                                const [year, mNum] = month.split('-');
+                                                const monthNamesShort = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+                                                const label = `${monthNamesShort[parseInt(mNum)-1]}/${year.substring(2)}`;
+
+                                                return (
+                                                    <div key={month} className="flex-1 flex flex-col items-center h-full justify-end group cursor-pointer">
+                                                        <div className="flex gap-2 w-full h-full items-end justify-center">
+                                                            <div style={{ height: `${incHeight}%` }} className="w-4 sm:w-6 bg-gradient-to-t from-emerald-500 to-emerald-400 rounded-t-md transition-all duration-500 group-hover:brightness-105 relative" title={`Receitas: R$ ${data.income.toFixed(2)}`}>
+                                                                <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] p-1 rounded opacity-0 group-hover:opacity-100 transition whitespace-nowrap z-10 font-bold">R$ {data.income.toFixed(0)}</span>
+                                                            </div>
+                                                            <div style={{ height: `${expHeight}%` }} className="w-4 sm:w-6 bg-gradient-to-t from-rose-500 to-rose-400 rounded-t-md transition-all duration-500 group-hover:brightness-105 relative" title={`Despesas: R$ ${data.expense.toFixed(2)}`}>
+                                                                <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] p-1 rounded opacity-0 group-hover:opacity-100 transition whitespace-nowrap z-10 font-bold">R$ {data.expense.toFixed(0)}</span>
+                                                            </div>
+                                                        </div>
+                                                        <span className="text-xs text-slate-500 mt-2 font-bold">{label}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    {/* Distribuição por Categoria */}
+                                    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between">
+                                        <div>
+                                            <h4 className="font-extrabold text-slate-700 text-lg mb-1">Distribuição</h4>
+                                            <p className="text-xs text-slate-400 mb-6">Custos consolidados de forma segmentada</p>
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            {CATEGORIES.map(cat => {
+                                                const spent = categoryExpenses[cat.id] || 0;
+                                                const pct = metrics.totalExpense > 0 ? (spent / metrics.totalExpense) * 100 : 0;
+                                                if (spent === 0) return null;
+
+                                                return (
+                                                    <div key={cat.id} className="space-y-1">
+                                                        <div className="flex items-center justify-between text-xs font-semibold">
+                                                            <span className="flex items-center gap-1.5 text-slate-600"><i className={`fa-solid ${cat.icon}`} style={{ color: cat.color }}></i> {cat.label}</span>
+                                                            <span className="text-slate-800 font-bold">R$ {spent.toFixed(2)} ({pct.toFixed(0)}%)</span>
+                                                        </div>
+                                                        <div className="w-full bg-slate-100 rounded-full h-2">
+                                                            <div style={{ width: `${pct}%`, backgroundColor: cat.color }} className="h-2 rounded-full transition-all duration-500"></div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'transactions' && (
+                            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden animate-fadeIn">
+                                <div className="p-6 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4">
+                                    <div>
+                                        <h3 className="text-lg font-bold text-slate-800">Histórico de Lançamentos</h3>
+                                        <p className="text-xs text-slate-400">Total de {filteredTransactions.length} registos no sistema</p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="bg-indigo-50 text-indigo-700 font-bold text-xs px-2.5 py-1 rounded-lg">{selectedMonth}</span>
+                                        <span className="bg-indigo-50 text-indigo-700 font-bold text-xs px-2.5 py-1 rounded-lg">Familiar: {selectedMember}</span>
+                                    </div>
+                                </div>
+
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-slate-50 text-slate-400 text-xs font-bold uppercase tracking-wider border-b border-slate-100">
+                                                <th className="py-4 px-6">Data</th>
+                                                <th className="py-4 px-6">Familiar</th>
+                                                <th className="py-4 px-6">Descrição</th>
+                                                <th className="py-4 px-6">Categoria</th>
+                                                <th className="py-4 px-6 text-right">Valor</th>
+                                                <th className="py-4 px-6 text-center">Situação</th>
+                                                <th className="py-4 px-6 text-center">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 text-sm font-medium">
+                                            {filteredTransactions.map(t => {
+                                                const catObj = CATEGORIES.find(c => c.id === t.category);
+                                                return (
+                                                    <tr key={t.id} className={`hover:bg-slate-50/80 transition ${t.status === 'pendente' ? 'bg-amber-50/30' : ''}`}>
+                                                        <td className="py-4 px-6 text-slate-500">{new Date(t.date).toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</td>
+                                                        <td className="py-4 px-6"><span className="bg-slate-100 text-slate-700 px-2 py-1 rounded-lg text-xs font-bold">{t.member}</span></td>
+                                                        <td className="py-4 px-6 text-slate-800 font-semibold">
+                                                            <div className="flex flex-col gap-1">
+                                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                                    <span>{t.description}</span>
+                                                                    {t.status === 'pendente' && <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded flex items-center gap-1"><i className="fa-solid fa-clock-rotate-left"></i> Pendente</span>}
+                                                                </div>
+                                                                {t.image && (
+                                                                    <button onClick={() => setViewingImage(t.image)} className="text-left text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 mt-0.5 font-bold"><i className="fa-solid fa-paperclip"></i> Visualizar Anexo</button>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-4 px-6">
+                                                            {t.type === 'income' ? (
+                                                                <span className="flex items-center gap-1 text-emerald-600 font-bold text-xs"><i className="fa-solid fa-circle-arrow-up"></i> Receita</span>
+                                                            ) : (
+                                                                <span className="flex items-center gap-1.5 text-slate-600"><i className={`fa-solid ${catObj?.icon}`} style={{ color: catObj?.color }}></i> {t.category}</span>
+                                                            )}
+                                                        </td>
+                                                        <td className={`py-4 px-6 text-right font-bold text-base ${t.type === 'income' ? 'text-emerald-600' : 'text-slate-800'}`}>{t.type === 'income' ? '+' : '-'} R$ {t.amount.toFixed(2)}</td>
+                                                        <td className="py-4 px-6 text-center">
+                                                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${t.status === 'pago' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{t.status === 'pago' ? 'Pago' : 'Em Aberto'}</span>
+                                                        </td>
+                                                        <td className="py-4 px-6 text-center">
+                                                            <div className="flex items-center justify-center gap-2">
+                                                                {t.status === 'pendente' && (
+                                                                    <button onClick={() => { setTxForm({ date: '2026-05-30', member: t.member, description: t.description, category: t.category, amount: t.amount.toString(), type: 'expense', status: 'pago', image: t.image || '' }); setMatchedTransactionId(t.id); setIsTransactionModalOpen(true); }} className="px-2 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded text-xs font-bold transition flex items-center gap-1"><i className="fa-solid fa-check"></i> Liquidar</button>
+                                                                )}
+                                                                <button onClick={() => { setEditingTransaction(t); setIsTransactionModalOpen(true); }} className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition"><i className="fa-solid fa-pen-to-square"></i></button>
+                                                                <button onClick={() => handleDeleteTransaction(t.id)} className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition"><i className="fa-solid fa-trash"></i></button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'budgets' && (
+                            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm animate-fadeIn">
+                                <h3 className="text-lg font-bold text-slate-800 mb-1">Limites e Teto Orçamental</h3>
+                                <p className="text-xs text-slate-400 mb-6">Configure limites máximos para despesas por categoria de consumo.</p>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    {CATEGORIES.map(cat => {
+                                        const spent = categoryExpenses[cat.id] || 0;
+                                        const limit = budgets[cat.id] || 0;
+                                        const progress = limit > 0 ? (spent / limit) * 100 : 0;
+                                        
+                                        let barColor = 'bg-emerald-500';
+                                        let statusText = 'Dentro do esperado';
+                                        let badgeColor = 'text-emerald-600 bg-emerald-50';
+                                        if (progress >= 100) {
+                                            barColor = 'bg-rose-500 animate-pulse';
+                                            statusText = 'Limite ultrapassado!';
+                                            badgeColor = 'text-rose-600 bg-rose-50';
+                                        } else if (progress >= 80) {
+                                            barColor = 'bg-amber-500';
+                                            statusText = 'Atenção ao limite!';
+                                            badgeColor = 'text-amber-600 bg-amber-50';
+                                        }
+
+                                        return (
+                                            <div key={cat.id} className="p-5 border border-slate-100 rounded-2xl bg-slate-50/50 flex flex-col justify-between space-y-4">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="flex items-center gap-2 font-bold text-slate-700">
+                                                        <div className="p-2 rounded-lg text-white text-xs" style={{ backgroundColor: cat.color }}><i className={`fa-solid ${cat.icon}`}></i></div>
+                                                        {cat.label}
+                                                    </span>
+                                                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${badgeColor}`}>{statusText}</span>
+                                                </div>
+
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between text-xs font-bold text-slate-500">
+                                                        <span>Consumo: R$ {spent.toFixed(2)}</span>
+                                                        <span>Limite: R$ {limit.toFixed(0)}</span>
+                                                    </div>
+                                                    <div className="w-full bg-slate-200 rounded-full h-3">
+                                                        <div style={{ width: `${Math.min(100, progress)}%` }} className={`h-3 rounded-full transition-all duration-500 ${barColor}`}></div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs text-slate-400 font-bold whitespace-nowrap">Alterar Teto:</span>
+                                                    <input type="number" defaultValue={limit} onBlur={(e) => handleUpdateBudget(cat.id, e.target.value)} className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs w-28 font-bold" />
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'goals' && (
+                            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm animate-fadeIn">
+                                <div className="flex items-center justify-between mb-6">
+                                    <div>
+                                        <h3 className="text-lg font-bold text-slate-800 mb-1">Metas e Projetos</h3>
+                                        <p className="text-xs text-slate-400">Poupe dinheiro focado em objetivos partilhados pela família.</p>
+                                    </div>
+                                    <button onClick={() => { setEditingGoal(null); setIsGoalModalOpen(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-xl text-sm flex items-center gap-2 transition"><i className="fa-solid fa-plus"></i> Nova Meta</button>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    {goals.map(g => {
+                                        const pct = Math.min(100, (g.current / g.target) * 100);
+                                        return (
+                                            <div key={g.id} className="p-6 border border-slate-100 rounded-2xl bg-white shadow-sm hover:border-indigo-200 transition flex flex-col justify-between space-y-4">
+                                                <div className="flex items-center justify-between">
+                                                    <h4 className="font-extrabold text-slate-800 text-base">{g.name}</h4>
+                                                    <span className="text-xs font-bold text-slate-400">Prazo: {g.deadline}</span>
+                                                </div>
+
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between text-xs font-bold text-slate-500">
+                                                        <span>Acumulado: R$ {g.current.toLocaleString('pt-BR')}</span>
+                                                        <span>Alvo: R$ {g.target.toLocaleString('pt-BR')}</span>
+                                                    </div>
+                                                    <div className="w-full bg-slate-100 rounded-full h-3.5">
+                                                        <div style={{ width: `${pct}%` }} className="h-3.5 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-600 transition-all duration-500"></div>
+                                                    </div>
+                                                    <span className="text-xs font-extrabold text-indigo-600 inline-block">{pct.toFixed(1)}% Cumprido</span>
+                                                </div>
+
+                                                <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                                                    <button onClick={() => triggerPrompt(`Adicionar fundos para ${g.name}`, "Indique o valor do depósito:", "", (val) => handleUpdateGoalValue(g.id, parseFloat(val) || 0, true))} className="flex-1 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 font-bold py-1.5 px-3 rounded-lg text-xs transition"><i className="fa-solid fa-arrow-trend-up"></i> Depositar</button>
+                                                    <button onClick={() => triggerPrompt(`Resgatar fundos de ${g.name}`, "Indique o valor de resgate:", "", (val) => handleUpdateGoalValue(g.id, parseFloat(val) || 0, false))} className="flex-1 bg-rose-50 text-rose-600 hover:bg-rose-100 font-bold py-1.5 px-3 rounded-lg text-xs transition"><i className="fa-solid fa-arrow-trend-down"></i> Levantar</button>
+                                                    <button onClick={() => { setEditingGoal(g); setIsGoalModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-lg"><i className="fa-solid fa-pen-to-square"></i></button>
+                                                    <button onClick={() => handleDeleteGoal(g.id)} className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg"><i className="fa-solid fa-trash"></i></button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'analysis' && (
+                            <div className="space-y-8 animate-fadeIn">
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center justify-center text-center">
+                                        <h4 className="font-extrabold text-slate-700 text-lg mb-6">Índice de Saúde</h4>
+                                        <div className="relative w-40 h-40 flex items-center justify-center">
+                                            <svg className="w-full h-full transform -rotate-90">
+                                                <circle cx="80" cy="80" r="70" stroke="#f1f5f9" strokeWidth="12" fill="transparent"></circle>
+                                                <circle cx="80" cy="80" r="70" stroke={healthScoreData.score < 50 ? '#ef4444' : healthScoreData.score < 70 ? '#f59e0b' : '#10b981'} strokeWidth="12" fill="transparent" strokeDasharray={440} strokeDashoffset={440 - (440 * healthScoreData.score) / 100} className="transition-all duration-1000"></circle>
+                                            </svg>
+                                            <div className="absolute flex flex-col items-center">
+                                                <span className="text-4xl font-extrabold text-slate-800">{healthScoreData.score}</span>
+                                                <span className="text-xs font-bold text-slate-400">Pontos</span>
+                                            </div>
+                                        </div>
+                                        <span className={`text-sm font-extrabold mt-6 px-4 py-1.5 rounded-full ${healthScoreData.scoreColor}`}>{healthScoreData.classification}</span>
+                                    </div>
+
+                                    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm lg:col-span-2">
+                                        <h4 className="font-extrabold text-slate-700 text-lg mb-4 flex items-center gap-2"><i className="fa-solid fa-lightbulb text-amber-500"></i> Conselhos e Alertas</h4>
+                                        <div className="space-y-4">
+                                            {healthScoreData.tips.map((tip, idx) => (
+                                                <div key={idx} className="flex gap-3 p-4 bg-slate-50 rounded-xl border-l-4 border-indigo-500">
+                                                    <p className="text-xs font-semibold text-slate-600 leading-relaxed">{tip}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                                    <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+                                        <div className="flex items-center gap-3">
+                                            <div className="bg-gradient-to-tr from-indigo-500 to-violet-600 text-white p-3 rounded-xl shadow-md"><i className="fa-solid fa-wand-magic-sparkles text-lg animate-pulse"></i></div>
+                                            <div>
+                                                <h4 className="font-extrabold text-slate-800 text-lg">Consultor de IA Gemini</h4>
+                                                <p className="text-xs text-slate-400">Desenvolva um diagnosticó aprofundado do padrão de gastos familiares.</p>
+                                            </div>
+                                        </div>
+                                        <button onClick={generateGeminiAdvice} disabled={isAiLoading} className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 disabled:from-slate-300 disabled:to-slate-400 text-white font-extrabold py-2.5 px-5 rounded-xl shadow-md transition flex items-center justify-center gap-2 text-sm">
+                                            {isAiLoading ? <><i className="fa-solid fa-circle-notch animate-spin"></i> A analisar...</> : <><i className="fa-solid fa-bolt"></i> Gerar Diagnóstico Inteligente</>}
+                                        </button>
+                                    </div>
+
+                                    {isAiLoading && (
+                                        <div className="bg-indigo-50/40 p-6 rounded-2xl border border-indigo-100/50 space-y-4 animate-pulse">
+                                            <div className="h-3 bg-slate-100 rounded w-5/6"></div>
+                                            <div className="h-3 bg-slate-100 rounded w-full"></div>
+                                        </div>
+                                    )}
+
+                                    {aiAdvice && !isAiLoading && (
+                                        <div className="bg-slate-50 border border-slate-100 p-6 rounded-2xl animate-fadeIn">{renderMarkdown(aiAdvice)}</div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    {/* MODAL TRANSAÇÃO */}
+                    {isTransactionModalOpen && (
+                        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden border border-slate-100 flex flex-col max-h-[95vh]">
+                                <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
+                                    <h3 className="font-extrabold text-lg flex items-center gap-2"><i className="fa-solid fa-file-invoice-dollar"></i> {editingTransaction ? 'Editar Registo' : 'Novo Lançamento & Scanner IA'}</h3>
+                                    <button onClick={() => setIsTransactionModalOpen(false)} className="text-slate-400 hover:text-white transition"><i className="fa-solid fa-xmark text-xl"></i></button>
+                                </div>
+
+                                <div className="p-6 overflow-y-auto space-y-6 flex-1">
+                                    {!editingTransaction && (
+                                        <div className="bg-gradient-to-tr from-slate-900 to-indigo-950 border border-indigo-500/20 rounded-2xl p-5 space-y-4 text-white shadow-xl">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5 animate-pulse"><i className="fa-solid fa-wand-magic-sparkles"></i> Reconhecimento Ótico Gemini</span>
+                                            </div>
+                                            
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <button type="button" onClick={() => setScanPurpose('boleto')} className={`py-2 px-3 rounded-xl text-xs font-bold border transition flex flex-col items-center gap-1 ${scanPurpose === 'boleto' ? 'bg-indigo-600 border-indigo-400 text-white' : 'bg-slate-800 border-slate-750 text-slate-400'}`}><i className="fa-solid fa-file-invoice text-lg"></i> <span>Despesa Futura</span></button>
+                                                <button type="button" onClick={() => setScanPurpose('comprovante')} className={`py-2 px-3 rounded-xl text-xs font-bold border transition flex flex-col items-center gap-1 ${scanPurpose === 'comprovante' ? 'bg-indigo-600 border-indigo-400 text-white' : 'bg-slate-800 border-slate-750 text-slate-400'}`}><i className="fa-solid fa-receipt text-lg"></i> <span>Comprovativo Pago</span></button>
+                                            </div>
+
+                                            <div className="flex gap-2">
+                                                <input type="file" ref={fileInputRef} onChange={handleImageUploadAndOCR} accept="image/*" capture="environment" className="hidden" />
+                                                <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isScanningImage} className="flex-1 py-2.5 px-4 bg-white hover:bg-indigo-50 text-indigo-900 font-bold rounded-xl text-xs transition shadow-md flex items-center justify-center gap-2">
+                                                    {isScanningImage ? <><i className="fa-solid fa-circle-notch animate-spin"></i> A analisar documento...</> : <><i className="fa-solid fa-camera"></i> Importar Recibo / Fatura</>}
+                                                </button>
+                                            </div>
+
+                                            {scannedPreview && (
+                                                <div className="relative mt-2 border border-slate-750 rounded-xl overflow-hidden h-36 bg-slate-950 flex flex-col items-center justify-center">
+                                                    <img src={scannedPreview} className="h-full w-auto object-contain opacity-60" alt="Pré-visualização" />
+                                                    {isScanningImage && <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-amber-500 to-indigo-500 shadow-lg scanner-line"></div>}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    <form onSubmit={handleFormSubmit} className="space-y-4">
+                                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3">
+                                            {txForm.status === 'pago' && (
+                                                <div>
+                                                    <label className="block text-[11px] font-extrabold text-indigo-900 uppercase tracking-wider mb-1">Vincular a uma conta em aberto</label>
+                                                    <select value={matchedTransactionId} onChange={(e) => { const id = e.target.value; setMatchedTransactionId(id); const orig = transactions.find(t => t.id === id); if (orig) { setTxForm(prev => ({ ...prev, description: orig.description, category: orig.category, amount: orig.amount.toString(), member: orig.member })); } }} className="w-full bg-white border border-indigo-200 rounded-xl px-3 py-2 text-xs font-bold text-indigo-950">
+                                                        <option value="">Lançar despesa avulsa (Sem vínculo)</option>
+                                                        {pendingAccounts.map(t => (
+                                                            <option key={t.id} value={t.id}>{t.description} - R$ {t.amount.toFixed(2)}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            )}
+
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tipo de Fluxo</label>
+                                                    <select value={txForm.type} onChange={(e) => setTxForm({...txForm, type: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold">
+                                                        <option value="expense">Despesa</option>
+                                                        <option value="income">Receita</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Responsável</label>
+                                                    <select value={txForm.member} onChange={(e) => setTxForm({...txForm, member: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold">
+                                                        {familyMembers.map(m => m !== 'Todos' && <option key={m} value={m}>{m}</option>)}
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Descrição</label>
+                                                <input type="text" required value={txForm.description} onChange={(e) => setTxForm({...txForm, description: e.target.value})} placeholder="Ex: Conta da Água" className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-semibold" />
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Valor (€ / R$)</label>
+                                                    <input type="number" step="0.01" required value={txForm.amount} onChange={(e) => setTxForm({...txForm, amount: e.target.value})} placeholder="0.00" className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold" />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Categoria</label>
+                                                    <select value={txForm.category} onChange={(e) => setTxForm({...txForm, category: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold">
+                                                        {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                                                        <option value="Receita">Faturamento / Receita</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Vencimento / Data</label>
+                                                    <input type="date" required value={txForm.date} onChange={(e) => setTxForm({...txForm, date: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold" />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Estado de Liquidação</label>
+                                                    <select value={txForm.status} onChange={(e) => setTxForm({...txForm, status: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold">
+                                                        <option value="pago">Pago (Liquidado)</option>
+                                                        <option value="pendente">Pendente (Por Pagar)</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            {txForm.image && (
+                                                <div className="pt-2 border-t border-slate-200">
+                                                    <span className="block text-xs font-bold text-slate-500 uppercase mb-1">Ficheiro Anexado:</span>
+                                                    <div className="flex items-center gap-3 bg-white p-2.5 rounded-xl border border-slate-200">
+                                                        <img src={txForm.image} className="w-12 h-12 object-cover rounded-lg border" alt="Anexo Miniatura" />
+                                                        <div className="flex-1">
+                                                            <button type="button" onClick={() => setViewingImage(txForm.image)} className="text-xs text-indigo-600 hover:underline font-bold block">Ampliar Imagem</button>
+                                                            <button type="button" onClick={() => setTxForm(prev => ({ ...prev, image: '' }))} className="text-xs text-rose-600 hover:underline font-bold block mt-0.5"><i className="fa-solid fa-trash-can mr-1"></i>Remover Ficheiro</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="flex gap-3 pt-4 border-t border-slate-100">
+                                            <button type="button" onClick={() => setIsTransactionModalOpen(false)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-500">Cancelar</button>
+                                            <button type="submit" className="flex-1 py-2.5 bg-indigo-600 text-white font-bold rounded-xl text-xs shadow-md">Guardar Registo</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL CONFIGURAÇÃO BANCO */}
+                    {isConfigModalOpen && (
+                        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+                            <form onSubmit={handleConfigSetupSubmit} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-md text-white space-y-4 animate-fadeIn">
+                                <h3 className="font-extrabold text-lg"><i className="fa-solid fa-gears text-indigo-400"></i> Conectar meu Firebase</h3>
+                                <p className="text-xs text-slate-400">Insira a configuração JSON gerada no console do seu projeto Firebase gratuito para usá-lo como banco de dados em tempo real:</p>
+                                
+                                <textarea name="fbConfigData" required rows="6" placeholder='{ "apiKey": "AIzaSy...", "authDomain": "...", "projectId": "..." }' className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"></textarea>
+                                
+                                <div className="flex gap-2">
+                                    <button type="button" onClick={() => setIsConfigModalOpen(false)} className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-750 rounded-xl text-xs font-bold">Voltar</button>
+                                    <button type="submit" className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-bold text-white shadow-md">Guardar & Sincronizar</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* MODAL METAS */}
+                    {isGoalModalOpen && (
+                        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden border border-slate-100 animate-fadeIn">
+                                <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
+                                    <h3 className="font-extrabold text-lg flex items-center gap-2"><i className="fa-solid fa-bullseye"></i> {editingGoal ? 'Editar Objetivo' : 'Planear Objetivo Familiar'}</h3>
+                                    <button onClick={() => setIsGoalModalOpen(false)} className="text-slate-400 hover:text-white transition"><i className="fa-solid fa-xmark text-xl"></i></button>
+                                </div>
+
+                                <form onSubmit={handleGoalFormSubmit} className="p-6 space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nome do Objetivo</label>
+                                        <input type="text" required value={goalForm.name} onChange={(e) => setGoalForm({...goalForm, name: e.target.value})} placeholder="Ex: Viagem de Férias" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-semibold" />
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Alvo Esperado (R$ / €)</label>
+                                            <input type="number" required value={goalForm.target} onChange={(e) => setGoalForm({...goalForm, target: e.target.value})} placeholder="Ex: 5000" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Prazo Alvo</label>
+                                            <input type="month" required value={goalForm.deadline} onChange={(e) => setGoalForm({...goalForm, deadline: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-semibold" />
+                                        </div>
+                                    </div>
+
+                                    <div className="flex gap-3 pt-4 border-t border-slate-100">
+                                        <button type="button" onClick={() => setIsGoalModalOpen(false)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-500">Cancelar</button>
+                                        <button type="submit" className="flex-1 py-2.5 bg-indigo-600 text-white font-bold rounded-xl text-xs shadow-md">Guardar Meta</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ASSISTENCIA GEMINI INTELIGENTE GAVETA */}
+                    <div className="fixed bottom-6 right-6 z-40">
+                        <button onClick={() => { setIsAssistantOpen(true); if (assistantMessages.length === 0) handleSendAssistantMessage(); }} className="bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 hover:from-indigo-700 hover:to-fuchsia-700 text-white font-bold py-3.5 px-6 rounded-2xl shadow-2xl hover:shadow-indigo-500/30 transition-all duration-300 transform hover:-translate-y-1 flex items-center gap-3 border border-indigo-400/30">
+                            <div className="relative">
+                                <i className="fa-solid fa-wand-magic-sparkles text-lg"></i>
+                                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full animate-ping"></span>
+                                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-50 rounded-full"></span>
+                            </div>
+                            <span className="text-sm tracking-wide font-bold">Consultar IA Gemini</span>
+                        </button>
+                    </div>
+
+                    {isAssistantOpen && (
+                        <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+                            <div className="bg-white w-full max-w-lg h-full shadow-2xl flex flex-col justify-between animate-slideIn">
+                                <div className="p-5 bg-gradient-to-r from-indigo-950 via-slate-900 to-indigo-950 text-white flex items-center justify-between border-b border-indigo-800/30">
+                                    <div className="flex items-center gap-3">
+                                        <div className="bg-gradient-to-tr from-indigo-500 via-violet-500 to-pink-500 p-2.5 rounded-xl shadow-md"><i className="fa-solid fa-brain text-white text-lg"></i></div>
+                                        <div>
+                                            <h3 className="font-extrabold text-base tracking-tight">Assessoria Virtual Gemini</h3>
+                                            <span className="text-[10px] text-indigo-200 font-bold uppercase tracking-wider block">Ativo em {selectedMonth}</span>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setIsAssistantOpen(false)} className="p-2 hover:bg-white/10 rounded-lg text-slate-300 hover:text-white"><i className="fa-solid fa-xmark text-xl"></i></button>
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50/70">
+                                    {assistantMessages.map((msg, idx) => {
+                                        const isUser = msg.role === 'user';
+                                        return (
+                                            <div key={idx} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+                                                <div className={`max-w-[88%] rounded-2xl p-4 shadow-sm text-xs leading-relaxed ${isUser ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
+                                                    {!isUser && <div className="font-bold text-[10px] text-indigo-600 mb-2 uppercase tracking-wide"><i className="fa-solid fa-robot"></i> Inteligência Artificial</div>}
+                                                    <div className="space-y-1">{isUser ? msg.text : renderMarkdown(msg.text)}</div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {isAssistantLoading && (
+                                        <div className="flex justify-start">
+                                            <div className="bg-white border border-slate-100 rounded-2xl p-4 max-w-[85%] space-y-2 text-xs text-slate-500">
+                                                <div className="flex items-center gap-2 text-indigo-600 font-bold"><i className="fa-solid fa-circle-notch animate-spin"></i><span>O Gemini está a avaliar os seus fluxos familiares...</span></div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="p-4 bg-white border-t border-slate-100">
+                                    <form onSubmit={handleSendAssistantMessage} className="flex gap-2">
+                                        <input type="text" value={assistantInput} onChange={(e) => setAssistantInput(e.target.value)} placeholder="Tire as suas dúvidas financeiras com o Gemini..." className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-xs font-semibold" disabled={isAssistantLoading} />
+                                        <button type="submit" disabled={isAssistantLoading || !assistantInput.trim()} className="bg-indigo-600 text-white py-3 px-4.5 rounded-xl shadow-md transition flex items-center justify-center"><i className="fa-solid fa-paper-plane text-xs"></i></button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <footer className="bg-slate-900 border-t border-slate-855 py-6 text-center text-slate-400 text-xs mt-12">
+                        <p>© 2026 FinFamily. O controlo financeiro inteligente de toda a sua família.</p>
+                        <p className="mt-1 text-slate-500">Desenvolvido com foco em usabilidade, segurança e sincronização nativa em tempo real.</p>
+                    </footer>
+                </div>
+            );
+        }
+
+        const container = document.getElementById('root');
+        const root = ReactDOM.createRoot(container);
+        root.render(<App />);
+    </script>
+</body>
+</html>
